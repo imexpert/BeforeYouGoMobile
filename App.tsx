@@ -12,6 +12,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ToastProvider } from 'react-native-toast-notifications';
 import { navigationRef } from './src/navigation/RootNavigation';
 import { authStore } from './src/store/auth';
+
+// i18n'i en başta import et
 import './src/translations/i18n';
 
 // Screen imports

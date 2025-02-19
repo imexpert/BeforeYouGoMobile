@@ -69,4 +69,7 @@ export default {
     name: 'Ad',
     surname: 'Soyad',
   },
+  auth: {
+    signInWithGoogle: 'Google ile Giriş Yap'
+  },
 }; 

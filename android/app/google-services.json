@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "971128462559",
+    "project_id": "be4yougo",
+    "storage_bucket": "be4yougo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:971128462559:android:e8e37bb1c6571f2b929d6a",
+        "android_client_info": {
+          "package_name": "com.aliosmanunal.beforeyougo"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "971128462559-qaf83h8regje3gu151ki0egsudkujs96.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aliosmanunal.beforeyougo",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "971128462559-nc3bs33h5vs6i22m45nm6vo6sjehbefv.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAsyGv6B6FHSkbllCt5OpVXA_Dc9ZnFFHw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "971128462559-nc3bs33h5vs6i22m45nm6vo6sjehbefv.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

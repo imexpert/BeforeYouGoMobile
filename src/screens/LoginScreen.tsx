@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,15 +6,21 @@ import {
   TouchableOpacity,
   Image,
   SafeAreaView,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
+import { GoogleSignin, auth } from '../config/firebase';
+import { useToast } from 'react-native-toast-notifications';
+import { authStore } from '../store/auth';
+import { authService } from '../api/services/auth';
 
 type RootStackParamList = {
   Welcome: undefined;
   LoginForm: undefined;
   Register: undefined;
+  Main: undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Welcome'>;
@@ -22,12 +28,70 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Welcome'>;
 const LoginScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const { t } = useTranslation();
+  const toast = useToast();
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    GoogleSignin.configure({
+      webClientId: '971128462559-nc3bs33h5vs6i22m45nm6vo6sjehbefv.apps.googleusercontent.com',
+    });
+  }, []);
+
+  const handleGoogleSignIn = async () => {
+    try {
+      setLoading(true);
+      console.log('Google Sign-In başlatılıyor...');
+      
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+      await GoogleSignin.getTokens();
+      
+      const response = await authService.loginWithGoogle({
+        idToken: userInfo.data?.idToken,
+        email: userInfo.data?.user.email,
+        firstName: userInfo.data?.user.givenName || '',
+        lastName: userInfo.data?.user.familyName || '',
+        photoUrl: userInfo.data?.user.photo,
+      });
+
+      await authStore.setAuth({
+        token: response.data.token,
+        user: {
+          firstName: userInfo.data?.user.givenName || '',
+          lastName: userInfo.data?.user.familyName || '',
+          email: userInfo.data?.user.email,
+          profileImage: userInfo.data?.user.photo || undefined,
+        }
+      });
+
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Main' }],
+      });
+
+      toast.show('Başarıyla giriş yapıldı', {
+        type: 'success',
+      });
+    } catch (error) {
+      console.error('Google Sign-In Error:', error);
+      toast.show('Google ile giriş yapılırken bir hata oluştu', {
+        type: 'danger',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
+      {loading && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#5D5FEF" />
+        </View>
+      )}
+      <View style={[styles.content, loading && styles.contentBlurred]}>
         {/* Illustration */}
-        <Image 
+        <Image
           source={require('../assets/images/login-illustration.png')}
           style={styles.illustration}
           resizeMode="contain"
@@ -41,7 +105,7 @@ const LoginScreen = () => {
 
         {/* Buttons */}
         <View style={styles.buttons}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.loginButton}
             onPress={() => navigation.navigate('LoginForm')}
           >
@@ -60,20 +124,23 @@ const LoginScreen = () => {
         <View style={styles.socialContainer}>
           <Text style={styles.socialText}>{t('welcome.socialText')}</Text>
           <View style={styles.socialButtons}>
-            <TouchableOpacity style={styles.socialButton}>
-              <Image 
-                source={require('../assets/images/facebook.png')}
-                style={styles.socialIcon}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton}>
-              <Image 
+            <TouchableOpacity
+              style={styles.socialButton}
+              onPress={handleGoogleSignIn}
+            >
+              <Image
                 source={require('../assets/images/google.png')}
                 style={styles.socialIcon}
               />
             </TouchableOpacity>
             <TouchableOpacity style={styles.socialButton}>
-              <Image 
+              <Image
+                source={require('../assets/images/facebook.png')}
+                style={styles.socialIcon}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.socialButton}>
+              <Image
                 source={require('../assets/images/linkedin.png')}
                 style={styles.socialIcon}
               />
@@ -176,6 +243,20 @@ const styles = StyleSheet.create({
   socialIcon: {
     width: 32,
     height: 32,
+  },
+  loadingContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    zIndex: 1000,
+  },
+  contentBlurred: {
+    opacity: 0.7,
   },
 });
 

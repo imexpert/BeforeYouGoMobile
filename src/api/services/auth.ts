@@ -40,4 +40,8 @@ export const authService = {
   register: (data: RegisterRequest) => {
     return apiClient.post<AuthResponse>('/Auth/Register', data);
   },
+
+  loginWithGoogle: (data: GoogleLoginRequest) => {
+    return apiClient.post<AuthResponse>('/Auth/LoginWithGoogle', data);
+  },
 }; 

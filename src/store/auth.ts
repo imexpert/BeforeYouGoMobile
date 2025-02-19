@@ -5,7 +5,7 @@ const AUTH_KEY = 'auth_data';
 interface User {
   firstName: string;
   lastName: string;
-  email: string;
+  email: string | undefined;
   profileImage?: string;
 }
 
