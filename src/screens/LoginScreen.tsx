@@ -123,29 +123,16 @@ const LoginScreen = () => {
         {/* Social Login */}
         <View style={styles.socialContainer}>
           <Text style={styles.socialText}>{t('welcome.socialText')}</Text>
-          <View style={styles.socialButtons}>
-            <TouchableOpacity
-              style={styles.socialButton}
-              onPress={handleGoogleSignIn}
-            >
-              <Image
-                source={require('../assets/images/google.png')}
-                style={styles.socialIcon}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton}>
-              <Image
-                source={require('../assets/images/facebook.png')}
-                style={styles.socialIcon}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton}>
-              <Image
-                source={require('../assets/images/linkedin.png')}
-                style={styles.socialIcon}
-              />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.googleButton}
+            onPress={handleGoogleSignIn}
+          >
+            <Image
+              source={require('../assets/images/google.png')}
+              style={styles.googleIcon}
+            />
+            <Text style={styles.googleButtonText}>{t('auth.signInWithGoogle')}</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </SafeAreaView>
@@ -228,21 +215,35 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 16,
   },
-  socialButtons: {
+  googleButton: {
     flexDirection: 'row',
-    gap: 16,
-  },
-  socialButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    width: '100%',
+    justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  socialIcon: {
-    width: 32,
-    height: 32,
+  googleIcon: {
+    width: 24,
+    height: 24,
+    marginRight: 12,
+  },
+  googleButtonText: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
   },
   loadingContainer: {
     position: 'absolute',

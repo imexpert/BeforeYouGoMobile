@@ -6,10 +6,11 @@ import {
   TouchableOpacity,
   TextInput,
   SafeAreaView,
+  ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Keyboard,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useToast } from 'react-native-toast-notifications';
@@ -112,7 +113,15 @@ const RegisterScreen = ({ navigation }: Props) => {
       });
 
       if (response.isSuccess) {
-        await authStore.setAuth(response.data);
+        await authStore.setAuth({
+          token: response.data.token,
+          user: {
+            firstName: response.data.firstName,
+            lastName: response.data.lastName,
+            email: response.data.email,
+            profileImage: response.data.profileImage,
+          }
+        });
         toast.show(t('validation.registerSuccess'), {
           type: 'success',
         });
@@ -129,11 +138,15 @@ const RegisterScreen = ({ navigation }: Props) => {
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.content}
+        style={styles.keyboardAvoidingView}
       >
-        <ScrollView>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.header}>
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => navigation.goBack()}
               style={styles.backButton}
             >
@@ -220,8 +233,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  content: {
+  keyboardAvoidingView: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: 16,
   },
   header: {
     flexDirection: 'row',

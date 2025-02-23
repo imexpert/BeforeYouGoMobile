@@ -6,9 +6,8 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { ImageBackground, StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ToastProvider } from 'react-native-toast-notifications';
 import { navigationRef } from './src/navigation/RootNavigation';
 import { authStore } from './src/store/auth';
@@ -16,14 +15,8 @@ import { authStore } from './src/store/auth';
 // i18n'i en başta import et
 import './src/translations/i18n';
 
-// Screen imports
-import LoginScreen from './src/screens/LoginScreen';
-import LoginFormScreen from './src/screens/LoginFormScreen';
-import RegisterScreen from './src/screens/RegisterScreen';
-import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
-import DrawerNavigator from './src/navigation/DrawerNavigator';
-
-const Stack = createNativeStackNavigator();
+// StackNavigator'ı import edelim
+import StackNavigator from './src/navigation/StackNavigator';
 
 function App(): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(true);
@@ -40,7 +33,7 @@ function App(): React.JSX.Element {
   };
 
   if (isLoading) {
-    return <View style={styles.background} />;
+    return <View style={{ flex: 1 }} />;
   }
 
   return (
@@ -50,31 +43,10 @@ function App(): React.JSX.Element {
       animationType="slide-in"
     >
       <NavigationContainer ref={navigationRef}>
-        <Stack.Navigator 
-          screenOptions={{ headerShown: false }}
-          initialRouteName={isAuthenticated ? 'Main' : 'Welcome'}
-        >
-          <Stack.Screen name="Welcome" component={LoginScreen} />
-          <Stack.Screen name="LoginForm" component={LoginFormScreen} />
-          <Stack.Screen name="Register" component={RegisterScreen} />
-          <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-          <Stack.Screen name="Main" component={DrawerNavigator} />
-        </Stack.Navigator>
+        <StackNavigator />
       </NavigationContainer>
     </ToastProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  background: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-});
 
 export default App;

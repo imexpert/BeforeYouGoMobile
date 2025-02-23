@@ -78,7 +78,7 @@ def jscFlavor = 'org.webkit:android-jsc:+'
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
-    compileSdk rootProject.ext.compileSdkVersion
+    compileSdkVersion rootProject.ext.compileSdkVersion
 
     namespace "com.aliosmanunal.beforeyougo"
     defaultConfig {
@@ -88,6 +88,11 @@ android {
         versionCode 1
         versionName "1.0"
         resValue "string", "build_config_package", "com.aliosmanunal.beforeyougo"
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=c++_shared"
+            }
+        }
     }
     signingConfigs {
         debug {
