@@ -14,6 +14,10 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   BackHandler,
+  Modal,
+  FlatList,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -25,7 +29,10 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../navigation/types';
 import { Dropdown } from 'react-native-element-dropdown';
-import Modal from 'react-native-modal';
+import { activityService, ActivityPayload } from '../api/services/activity';
+
+// Default image import
+const DEFAULT_IMAGE = require('../assets/images/emptyactivity.png');
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateActivity'>;
@@ -40,6 +47,47 @@ interface ActivityItem {
   quantity: number;
 }
 
+// Utility function to process image data
+const processImageData = (imageUri: string | null): string | null => {
+  if (!imageUri) return null;
+  
+  // If it's already a base64 data URL, return it as is
+  if (imageUri.startsWith('data:image')) {
+    // Check if the base64 string is too large (> 1MB)
+    const base64Data = imageUri.split(',')[1];
+    if (base64Data && base64Data.length > 1024 * 1024) {
+      console.warn('Base64 image data is too large (>1MB), this may cause issues');
+    }
+    return imageUri;
+  }
+  
+  // For file URIs, we should ideally convert them to base64
+  // But for now, we'll return null to avoid JSON parsing issues
+  console.log('Image URI not in base64 format, skipping:', imageUri);
+  return null;
+};
+
+// Function to safely stringify JSON with large objects
+const safeStringify = (obj: any): string => {
+  try {
+    return JSON.stringify(obj);
+  } catch (error) {
+    // If the object has circular references or is too large, try to create a simplified version
+    if (obj.activity && obj.activity.imageData) {
+      const simplifiedObj = {
+        ...obj,
+        activity: {
+          ...obj.activity,
+          imageData: obj.activity.imageData ? '[IMAGE DATA]' : null
+        }
+      };
+      console.warn('Original object could not be stringified, using simplified version');
+      return JSON.stringify(simplifiedObj);
+    }
+    throw error;
+  }
+};
+
 const CreateActivityScreen = ({ navigation, route }: Props) => {
   const activity = route.params?.activity;
   const isEditing = !!activity;
@@ -49,12 +97,15 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [location, setLocation] = useState(activity?.location || '');
   const [image, setImage] = useState<string | null>(activity?.imageUrl || null);
+  const [isDefaultImage, setIsDefaultImage] = useState(true);
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [itemName, setItemName] = useState('');
   const [itemUnit, setItemUnit] = useState<'kg' | 'lt' | 'adet'>('adet');
   const [itemQuantity, setItemQuantity] = useState('');
-  const [showUnitPicker, setShowUnitPicker] = useState(false);
   const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [datePickerMode, setDatePickerMode] = useState<'date' | 'time'>('date');
+  const [isLoading, setIsLoading] = useState(false);
 
   const units = [
     { label: 'Adet', value: 'adet' },
@@ -62,35 +113,114 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
     { label: 'Litre', value: 'lt' },
   ];
 
+  // Load activity items when editing
+  useEffect(() => {
+    if (isEditing && activity?.items) {
+      // Convert API items to ActivityItem format
+      const convertedItems = activity.items.map((item: any) => ({
+        id: item.id || Date.now().toString(),
+        name: item.name,
+        unit: convertApiUnitToLocal(item.unit),
+        quantity: item.itemCount,
+      }));
+      setItems(convertedItems);
+    }
+  }, [isEditing, activity]);
+
+  // Convert API unit format to local format
+  const convertApiUnitToLocal = (apiUnit: string): 'kg' | 'lt' | 'adet' => {
+    switch (apiUnit) {
+      case 'Kilogram':
+        return 'kg';
+      case 'Litre':
+        return 'lt';
+      case 'Adet':
+      default:
+        return 'adet';
+    }
+  };
+
   const handleDateChange = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(false);
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
+    
     if (selectedDate) {
       setDate(selectedDate);
+      
+      // On Android, we need to show the time picker after date is selected
+      if (Platform.OS === 'android' && datePickerMode === 'date') {
+        setDatePickerMode('time');
+        setTimeout(() => {
+          setShowDatePicker(true);
+        }, 100);
+      }
     }
+  };
+
+  const showDatepicker = () => {
+    setDatePickerMode('date');
+    setShowDatePicker(true);
   };
 
   const handleImagePick = () => {
     ImagePicker.launchImageLibrary({
       mediaType: 'photo',
-      quality: 0.8,
+      quality: 0.5, // Reduced quality for smaller payload
+      includeBase64: true,
+      maxWidth: 800, // Limit image size
+      maxHeight: 800,
     }, (response) => {
-      if (response.assets && response.assets[0].uri) {
-        setImage(response.assets[0].uri);
+      if (response.didCancel) {
+        console.log('User cancelled image picker');
+      } else if (response.errorCode) {
+        console.log('ImagePicker Error: ', response.errorMessage);
+        Alert.alert('Hata', 'Resim seçilirken bir hata oluştu.');
+      } else if (response.assets && response.assets[0]) {
+        const asset = response.assets[0];
+        if (asset.base64) {
+          // Use base64 data with proper data URL format
+          setImage(`data:image/jpeg;base64,${asset.base64}`);
+          setIsDefaultImage(false);
+        } else if (asset.uri) {
+          // If no base64 available, use URI but log a warning
+          console.warn('Image picked without base64 data, using URI instead');
+          setImage(asset.uri);
+          setIsDefaultImage(false);
+        }
       }
     });
+  };
+
+  const handleEditItem = (item: ActivityItem) => {
+    setItemName(item.name);
+    setItemUnit(item.unit);
+    setItemQuantity(item.quantity.toString());
+    setEditingItemId(item.id);
+    setShowAddItemModal(true);
   };
 
   const handleAddItem = () => {
     if (!itemName || !itemQuantity) return;
 
     const newItem: ActivityItem = {
-      id: Date.now().toString(),
+      id: editingItemId || Date.now().toString(),
       name: itemName,
       unit: itemUnit,
       quantity: Number(itemQuantity),
     };
 
-    setItems([...items, newItem]);
+    if (editingItemId) {
+      // Update existing item
+      setItems(items.map(item => 
+        item.id === editingItemId ? newItem : item
+      ));
+      setEditingItemId(null);
+    } else {
+      // Add new item
+      setItems([...items, newItem]);
+    }
+
     setItemName('');
     setItemQuantity('');
     setItemUnit('adet');
@@ -101,23 +231,147 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
     setItems(items.filter(item => item.id !== id));
   };
 
-  const handleSubmit = () => {
-    const activityData = {
-      name,
-      date,
-      location,
-      image,
+  // Birim değerini API formatına dönüştürme
+  const mapUnitToApiFormat = (unit: 'kg' | 'lt' | 'adet'): string => {
+    switch (unit) {
+      case 'kg':
+        return 'Kilogram';
+      case 'lt':
+        return 'Litre';
+      case 'adet':
+        return 'Adet';
+      default:
+        return 'Adet';
+    }
+  };
+
+  // API'ye veri gönderme
+  const sendDataToApi = async (data: ActivityPayload) => {
+    try {
+      if (isEditing && activity?.id) {
+        // Aktivite güncelleme işlemi
+        const response = await activityService.updateActivityWithItems(activity.id, data);
+        return response.data;
+      } else {
+        // Yeni aktivite oluşturma işlemi
+        const response = await activityService.createActivityWithItems(data);
+        return response.data;
+      }
+    } catch (error) {
+      console.error('API error:', error);
+      // 401 hatası artık merkezi olarak API client'ta ele alınıyor
+      // Bu nedenle burada özel bir işlem yapmaya gerek yok
+      throw error;
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!name) return;
+
+    // Tarih formatını API'nin beklediği formata dönüştürme
+    const formattedDate = date.toISOString();
+
+    // Process image data - don't send default image to API
+    const processedImageData = image ? processImageData(image) : null;
+
+    // API'ye gönderilecek veriyi hazırlama
+    const activityData: ActivityPayload = {
+      activity: {
+        ...(isEditing && activity?.id ? { id: activity.id } : {}),
+        name,
+        activityTime: formattedDate,
+        location,
+        imageData: processedImageData,
+      },
+      activityItems: items.map(item => ({
+        ...(isEditing ? { id: item.id } : {}),
+        name: item.name,
+        unit: mapUnitToApiFormat(item.unit),
+        itemCount: item.quantity,
+      })),
     };
 
-    if (isEditing) {
-      // Aktivite güncelleme işlemi
-      console.log('Update activity:', { id: activity.id, ...activityData });
-    } else {
-      // Yeni aktivite oluşturma işlemi
-      console.log('Create new activity:', activityData);
+    // Detailed logging for debugging
+    console.log('Activity Data Structure:', {
+      activityName: name,
+      activityTime: formattedDate,
+      location: location,
+      imageDataExists: processedImageData ? 'Yes (data not shown)' : 'No',
+      imageDataType: processedImageData ? typeof processedImageData : 'null',
+      imageDataLength: processedImageData ? processedImageData.length : 0,
+      itemsCount: items.length,
+      isEditing: isEditing,
+    });
+    
+    // Log each item separately for easier debugging
+    items.forEach((item, index) => {
+      console.log(`Item ${index + 1}:`, {
+        name: item.name,
+        unit: item.unit,
+        apiUnit: mapUnitToApiFormat(item.unit),
+        quantity: item.quantity,
+        id: item.id
+      });
+    });
+
+    // Try to stringify with a size limit for console output
+    try {
+      const jsonString = safeStringify(activityData);
+      console.log('JSON String Length:', jsonString.length);
+      
+      // Only log the first part of the JSON if it's very large
+      if (jsonString.length > 1000) {
+        console.log('JSON Preview (first 1000 chars):', jsonString.substring(0, 1000) + '...');
+      } else {
+        console.log('Full JSON:', jsonString);
+      }
+      
+      // Check if image data is too large
+      if (processedImageData && processedImageData.length > 500000) {
+        console.warn('Warning: Image data is very large (' + processedImageData.length + ' chars). This may cause JSON parsing issues.');
+      }
+    } catch (error) {
+      console.error('Error stringifying activity data:', error);
+      Alert.alert(
+        'Hata',
+        'Veri formatında bir sorun var. Lütfen resim eklemeden tekrar deneyin.'
+      );
+      setIsLoading(false);
+      return;
     }
 
-    navigation.goBack();
+    setIsLoading(true);
+
+    try {
+      const result = await sendDataToApi(activityData);
+      Alert.alert(
+        'Başarılı', 
+        isEditing ? 'Aktivite başarıyla güncellendi' : 'Aktivite başarıyla oluşturuldu'
+      );
+      navigation.goBack();
+    } catch (error) {
+      console.error('API error details:', error);
+      
+      // Check if it's a JSON parse error
+      const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen hata';
+      
+      // 401 hatası artık merkezi olarak API client'ta ele alınıyor
+      // Sadece JSON parse hatası ve diğer hataları burada ele alıyoruz
+      if (errorMessage.includes('JSON') || errorMessage.includes('parse')) {
+        Alert.alert(
+          'Hata',
+          'Veri formatı hatası. Resim boyutu çok büyük olabilir. Lütfen daha küçük bir resim seçin veya resim eklemeden tekrar deneyin.'
+        );
+      } else if (!errorMessage.includes('Oturum süresi doldu')) {
+        // Oturum süresi doldu hatası dışındaki diğer hataları göster
+        Alert.alert(
+          'Hata',
+          'Aktivite kaydedilirken bir hata oluştu. Lütfen tekrar deneyin.'
+        );
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleUnitSelect = (item: { value: 'kg' | 'lt' | 'adet' }) => {
@@ -136,90 +390,55 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
     return () => backHandler.remove();
   }, [showAddItemModal]);
 
-  const AddItemModal = () => (
-    <Modal
-      isVisible={showAddItemModal}
-      onBackdropPress={() => setShowAddItemModal(false)}
-      onBackButtonPress={() => setShowAddItemModal(false)}
-      useNativeDriver
-      style={{ margin: 0 }}
-      avoidKeyboard={true}
-      propagateSwipe={true}
-      backdropTransitionOutTiming={0}
-      statusBarTranslucent
-      coverScreen={false}
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1, justifyContent: 'center' }}
-      >
-        <View style={styles.addItemModalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Öğe Ekle</Text>
-            <TouchableOpacity 
-              onPress={() => setShowAddItemModal(false)}
-              style={styles.closeButton}
-            >
-              <Icon name="close" size={24} color="#000" />
-            </TouchableOpacity>
-          </View>
+  // Set isDefaultImage based on whether we have an image from the activity
+  useEffect(() => {
+    if (activity?.imageUrl) {
+      setIsDefaultImage(false);
+    }
+  }, [activity]);
 
-          <View style={styles.modalForm}>
-            <View>
-              <Text style={styles.label}>İsim</Text>
-              <TextInput
-                style={styles.input}
-                value={itemName}
-                onChangeText={setItemName}
-                placeholder="Öğe adını girin"
-              />
-            </View>
+  // Render item for the table
+  const renderItem = ({ item }: { item: ActivityItem }) => (
+    <View style={styles.tableRow}>
+      <Text style={styles.tableCell}>{item.name}</Text>
+      <Text style={styles.tableCell}>{item.quantity}</Text>
+      <Text style={styles.tableCell}>{item.unit}</Text>
+      <View style={styles.actionButtons}>
+        <TouchableOpacity
+          onPress={() => handleEditItem(item)}
+          style={styles.editButton}
+        >
+          <Icon name="edit" size={20} color="#5D5FEF" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => handleRemoveItem(item.id)}
+          style={styles.removeButton}
+        >
+          <Icon name="delete" size={20} color="#FF3B30" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
-            <View>
-              <Text style={styles.label}>Birim</Text>
-              <Dropdown
-                style={styles.dropdown}
-                placeholderStyle={styles.placeholderStyle}
-                selectedTextStyle={styles.selectedTextStyle}
-                data={units}
-                maxHeight={300}
-                labelField="label"
-                valueField="value"
-                placeholder="Birim seçin"
-                value={itemUnit}
-                onChange={item => handleUnitSelect(item)}
-              />
-            </View>
-
-            <View>
-              <Text style={styles.label}>Miktar</Text>
-              <TextInput
-                style={styles.input}
-                value={itemQuantity}
-                onChangeText={setItemQuantity}
-                keyboardType="numeric"
-                placeholder="Miktar girin"
-              />
-            </View>
-
-            <TouchableOpacity
-              style={[
-                styles.addButton,
-                (!itemName || !itemQuantity) && styles.addButtonDisabled
-              ]}
-              onPress={handleAddItem}
-              disabled={!itemName || !itemQuantity}
-            >
-              <Text style={styles.addButtonText}>Ekle</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+  // Table header component
+  const TableHeader = () => (
+    <View style={styles.tableHeader}>
+      <Text style={styles.tableHeaderText}>Öğe</Text>
+      <Text style={styles.tableHeaderText}>Miktar</Text>
+      <Text style={styles.tableHeaderText}>Birim</Text>
+      <Text style={styles.tableHeaderText}>İşlemler</Text>
+    </View>
   );
 
   return (
     <SafeAreaView style={styles.container}>
+      {isLoading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#5D5FEF" />
+          <Text style={styles.loadingText}>Kaydediliyor...</Text>
+        </View>
+      )}
+      
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
           <TouchableOpacity 
@@ -234,7 +453,7 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
           <TouchableOpacity 
             style={[styles.saveButton, !name && styles.saveButtonDisabled]}
             onPress={handleSubmit}
-            disabled={!name}
+            disabled={!name || isLoading}
           >
             <Text style={styles.saveButtonText}>
               {isEditing ? 'Güncelle' : 'Kaydet'}
@@ -244,12 +463,33 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
 
         <View style={styles.imageContainer}>
           {image ? (
-            <Image source={{ uri: image }} style={styles.selectedImage} />
+            <View style={styles.defaultImageContainer}>
+              <Image 
+                source={{ uri: image }} 
+                style={styles.selectedImage} 
+                resizeMode="stretch"
+              />
+              <TouchableOpacity 
+                style={styles.changeImageButton}
+                onPress={handleImagePick}
+              >
+                <Text style={styles.changeImageText}>Resmi Değiştir</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
-            <TouchableOpacity style={styles.imagePicker} onPress={handleImagePick}>
-              <Icon name="add-photo-alternate" size={32} color="#666" />
-              <Text style={styles.imagePickerText}>Resim Ekle</Text>
-            </TouchableOpacity>
+            <View style={styles.defaultImageContainer}>
+              <Image 
+                source={DEFAULT_IMAGE} 
+                style={styles.defaultImage} 
+                resizeMode="stretch"
+              />
+              <TouchableOpacity 
+                style={styles.changeImageButton}
+                onPress={handleImagePick}
+              >
+                <Text style={styles.changeImageText}>Resmi Değiştir</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
 
@@ -268,7 +508,7 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
             <Text style={styles.label}>Aktivite Zamanı</Text>
             <TouchableOpacity
               style={styles.datePickerButton}
-              onPress={() => setShowDatePicker(true)}
+              onPress={showDatepicker}
             >
               <Text style={styles.dateText}>
                 {format(date, 'dd MMMM yyyy HH:mm', { locale: tr })}
@@ -300,43 +540,147 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
 
             {items.length > 0 ? (
               <View style={styles.itemsTable}>
-                <View style={styles.tableHeader}>
-                  <Text style={styles.tableHeaderText}>Öğe</Text>
-                  <Text style={styles.tableHeaderText}>Miktar</Text>
-                  <Text style={styles.tableHeaderText}>Birim</Text>
-                  <Text style={styles.tableHeaderText}></Text>
-                </View>
-                {items.map(item => (
-                  <View key={item.id} style={styles.tableRow}>
-                    <Text style={styles.tableCell}>{item.name}</Text>
-                    <Text style={styles.tableCell}>{item.quantity}</Text>
-                    <Text style={styles.tableCell}>{item.unit}</Text>
-                    <TouchableOpacity
-                      onPress={() => handleRemoveItem(item.id)}
-                      style={styles.removeButton}
-                    >
-                      <Icon name="delete" size={20} color="#FF3B30" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
+                <TableHeader />
+                <FlatList
+                  data={items}
+                  renderItem={renderItem}
+                  keyExtractor={item => item.id}
+                  scrollEnabled={false}
+                />
               </View>
             ) : (
-              <Text style={styles.emptyText}>Henüz öğe eklenmemiş</Text>
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>Henüz öğe eklenmemiş</Text>
+                <TouchableOpacity
+                  style={styles.addFirstItemButton}
+                  onPress={() => setShowAddItemModal(true)}
+                >
+                  <Text style={styles.addFirstItemText}>İlk Öğeyi Ekle</Text>
+                </TouchableOpacity>
+              </View>
             )}
           </View>
         </View>
 
         {showDatePicker && (
           <DateTimePicker
+            testID="dateTimePicker"
             value={date}
-            mode="datetime"
-            display="default"
+            mode={datePickerMode}
+            is24Hour={true}
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
             onChange={handleDateChange}
           />
         )}
-
-        <AddItemModal />
       </ScrollView>
+
+      {/* Simple Modal Implementation */}
+      <Modal
+        visible={showAddItemModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => {
+          setShowAddItemModal(false);
+          setEditingItemId(null);
+          setItemName('');
+          setItemQuantity('');
+          setItemUnit('adet');
+        }}
+      >
+        <TouchableOpacity 
+          style={styles.modalBackdrop} 
+          activeOpacity={1} 
+          onPress={() => {
+            setShowAddItemModal(false);
+            setEditingItemId(null);
+            setItemName('');
+            setItemQuantity('');
+            setItemUnit('adet');
+          }}
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.keyboardAvoidingView}
+          >
+            <TouchableOpacity 
+              activeOpacity={1} 
+              onPress={e => e.stopPropagation()}
+            >
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>
+                    {editingItemId ? 'Öğeyi Düzenle' : 'Öğe Ekle'}
+                  </Text>
+                  <TouchableOpacity 
+                    onPress={() => {
+                      setShowAddItemModal(false);
+                      setEditingItemId(null);
+                      setItemName('');
+                      setItemQuantity('');
+                      setItemUnit('adet');
+                    }}
+                    style={styles.closeButton}
+                  >
+                    <Icon name="close" size={24} color="#000" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.modalForm}>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>İsim</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={itemName}
+                      onChangeText={setItemName}
+                      placeholder="Öğe adını girin"
+                    />
+                  </View>
+
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Birim</Text>
+                    <Dropdown
+                      style={styles.dropdown}
+                      placeholderStyle={styles.placeholderStyle}
+                      selectedTextStyle={styles.selectedTextStyle}
+                      data={units}
+                      maxHeight={300}
+                      labelField="label"
+                      valueField="value"
+                      placeholder="Birim seçin"
+                      value={itemUnit}
+                      onChange={item => handleUnitSelect(item)}
+                    />
+                  </View>
+
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Miktar</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={itemQuantity}
+                      onChangeText={setItemQuantity}
+                      keyboardType="numeric"
+                      placeholder="Miktar girin"
+                    />
+                  </View>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.addButton,
+                      (!itemName || !itemQuantity) && styles.addButtonDisabled
+                    ]}
+                    onPress={handleAddItem}
+                    disabled={!itemName || !itemQuantity}
+                  >
+                    <Text style={styles.addButtonText}>
+                      {editingItemId ? 'Güncelle' : 'Ekle'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </KeyboardAvoidingView>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -378,24 +722,27 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   imageContainer: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  imagePicker: {
-    height: 200,
-    backgroundColor: '#f5f5f5',
+  defaultImageContainer: {
+    position: 'relative',
+    height: 220,
     borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f5f5f5',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  imagePickerText: {
-    marginTop: 8,
-    color: '#666',
-    fontSize: 14,
+  defaultImage: {
+    height: '100%',
+    width: '100%',
+    resizeMode: 'stretch',
   },
   selectedImage: {
-    height: 200,
-    borderRadius: 12,
+    height: '100%',
     width: '100%',
+    resizeMode: 'stretch',
   },
   form: {
     padding: 16,
@@ -452,6 +799,7 @@ const styles = StyleSheet.create({
     borderColor: '#E2E2E2',
     borderRadius: 8,
     overflow: 'hidden',
+    marginBottom: 20,
   },
   tableHeader: {
     flexDirection: 'row',
@@ -465,6 +813,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#666',
+    textAlign: 'center',
   },
   tableRow: {
     flexDirection: 'row',
@@ -477,9 +826,20 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#000',
+    textAlign: 'center',
+  },
+  actionButtons: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editButton: {
+    padding: 8,
+    marginRight: 8,
   },
   removeButton: {
-    padding: 4,
+    padding: 8,
   },
   unitSelector: {
     height: 48,
@@ -496,27 +856,26 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   modalContainer: {
-    position: 'absolute',
-    zIndex: 1000,
-  },
-  modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 20,
   },
   modalContent: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    width: '100%',
     padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   modalTitle: {
     fontSize: 18,
@@ -527,6 +886,9 @@ const styles = StyleSheet.create({
   },
   modalForm: {
     gap: 16,
+  },
+  formGroup: {
+    marginBottom: 16,
   },
   addButton: {
     height: 48,
@@ -548,7 +910,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#666',
     fontSize: 14,
-    marginTop: 16,
+    marginBottom: 12,
   },
   unitPickerContent: {
     backgroundColor: '#fff',
@@ -586,11 +948,64 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000',
   },
-  addItemModalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 16,
+  emptyContainer: {
+    alignItems: 'center',
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#E2E2E2',
+    borderRadius: 8,
+    borderStyle: 'dashed',
+  },
+  addFirstItemButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#5D5FEF',
+    borderRadius: 8,
+  },
+  addFirstItemText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 20,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  loadingText: {
+    color: '#fff',
+    marginTop: 10,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  changeImageButton: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 10,
+    alignItems: 'center',
+  },
+  changeImageText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });
 

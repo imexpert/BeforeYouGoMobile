@@ -2,7 +2,7 @@ import { API_URL, API_CONFIG } from './config';
 import { ApiResponse } from './types';
 import { Toast, ToastType } from 'react-native-toast-notifications';
 import { authStore } from '../store/auth';
-import { navigationRef } from '../navigation/RootNavigation';
+import { navigationRef, navigateToLogin } from '../navigation/RootNavigation';
 
 declare global {
   var toast: ToastType;
@@ -50,11 +50,16 @@ class ApiClient {
       });
 
       if (response.status === 401) {
+        console.log('401 Unauthorized error detected - Logging out user');
         await authStore.clearAuth();
-        navigationRef.reset({
-          index: 0,
-          routes: [{ name: 'Welcome' }],
+        this.toast?.show('Oturum süreniz doldu. Lütfen tekrar giriş yapın.', {
+          type: 'danger',
+          placement: 'top',
+          duration: 4000,
         });
+        
+        navigateToLogin();
+        
         throw new Error('Oturum süresi doldu');
       }
 
@@ -91,17 +96,33 @@ class ApiClient {
   }
 
   async post<T>(endpoint: string, body: any): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
+    try {
+      // Ensure body can be properly stringified
+      const jsonBody = JSON.stringify(body);
+      
+      return this.request<T>(endpoint, {
+        method: 'POST',
+        body: jsonBody,
+      });
+    } catch (error) {
+      console.error('Error stringifying request body:', error);
+      throw new Error('Invalid request data: Could not convert to JSON');
+    }
   }
 
   async put<T>(endpoint: string, body: any): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    });
+    try {
+      // Ensure body can be properly stringified
+      const jsonBody = JSON.stringify(body);
+      
+      return this.request<T>(endpoint, {
+        method: 'PUT',
+        body: jsonBody,
+      });
+    } catch (error) {
+      console.error('Error stringifying request body:', error);
+      throw new Error('Invalid request data: Could not convert to JSON');
+    }
   }
 
   async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
