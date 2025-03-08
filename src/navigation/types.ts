@@ -9,7 +9,9 @@ interface Activity {
 }
 
 export type RootStackParamList = {
-  Login: undefined;
+  Welcome: undefined;
+  LoginForm: undefined;
+  Register: undefined;
   Main: undefined;
   CreateActivity: {
     activity?: Activity;

@@ -1,133 +1,199 @@
-import { API_URL, API_CONFIG } from './config';
-import { ApiResponse } from './types';
-import { Toast, ToastType } from 'react-native-toast-notifications';
+import { API_URL } from './config';
+import { navigateToLogin } from '../navigation/RootNavigation';
+import Toast from 'react-native-toast-message';
+import { Alert } from 'react-native';
 import { authStore } from '../store/auth';
-import { navigationRef, navigateToLogin } from '../navigation/RootNavigation';
 
-declare global {
-  var toast: ToastType;
+// HeadersInit tipini tanımla
+type HeadersInit = Headers | Record<string, string> | string[][];
+
+// API yanıt tipi
+export interface ApiResponse<T> {
+  isSuccess: boolean;
+  message: string | null;
+  data: T;
 }
 
-type HeadersInit_ = Headers | string[][] | Record<string, string>;
+// İstek seçenekleri için interface
+interface RequestOptions {
+  requiresAuth?: boolean;
+  customHeaders?: Record<string, string>;
+}
 
-class ApiClient {
-  private static instance: ApiClient;
-  private toast: ToastType;
+export class ApiClient {
+  private baseUrl: string | undefined;
+  private loading: boolean = false;
 
-  private constructor() {
-    this.toast = global.toast;
+  constructor(baseUrl: string | undefined = API_URL) {
+    this.baseUrl = baseUrl;
   }
 
-  static getInstance(): ApiClient {
-    if (!ApiClient.instance) {
-      ApiClient.instance = new ApiClient();
-    }
-    return ApiClient.instance;
+  get isLoading(): boolean {
+    return this.loading;
   }
 
-  private async getHeaders(): Promise<HeadersInit_> {
-    const token = await authStore.getToken();
-    return {
-      ...API_CONFIG.headers,
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  set isLoading(value: boolean) {
+    this.loading = value;
+  }
+
+  private async getHeaders(options: RequestOptions = {}): Promise<HeadersInit> {
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
     };
+
+    if (options.requiresAuth !== false) {
+      const token = await authStore.getToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    }
+
+    if (options.customHeaders) {
+      Object.assign(headers, options.customHeaders);
+    }
+
+    return headers;
+  }
+
+  async clearAuth(): Promise<void> {
+    await authStore.clearAuth();
   }
 
   async request<T>(
+    method: string,
     endpoint: string,
-    options: RequestInit = {},
+    data?: any,
+    options: RequestOptions = {}
   ): Promise<ApiResponse<T>> {
     try {
-      const headers = await this.getHeaders();
-      const url = `${API_URL}${endpoint}`;
+      if (!this.baseUrl) {
+        throw new Error('API URL is not defined');
+      }
       
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          ...headers,
-          ...options.headers,
-        },
-      });
-
-      if (response.status === 401) {
-        console.log('401 Unauthorized error detected - Logging out user');
-        await authStore.clearAuth();
-        this.toast?.show('Oturum süreniz doldu. Lütfen tekrar giriş yapın.', {
-          type: 'danger',
-          placement: 'top',
-          duration: 4000,
+      const url = `${this.baseUrl}${endpoint}`;
+      const headers = await this.getHeaders(options);
+      
+      const config: RequestInit = {
+        method,
+        headers,
+        body: data ? JSON.stringify(data) : undefined,
+      };
+      
+      this.isLoading = true;
+      
+      const response = await fetch(url, config);
+      
+      // 401 veya 403 hatası kontrolü
+      if (response.status === 401 || response.status === 403) {
+        console.error(`Authentication error: ${response.status} ${response.statusText}`);
+        
+        // Auth verilerini temizle
+        await this.clearAuth();
+        
+        // Kullanıcıya bilgi ver
+        Toast.show({
+          type: 'error',
+          text1: 'Oturum süresi doldu',
+          text2: 'Lütfen tekrar giriş yapın',
+          visibilityTime: 3000,
+          autoHide: true,
         });
         
-        navigateToLogin();
+        // Navigasyon işlemini bir timeout ile yap (toast mesajının görünmesi için)
+        setTimeout(() => {
+          try {
+            const result = navigateToLogin();
+            console.log('Navigation result:', result);
+          } catch (navError) {
+            console.error('Navigation error:', navError);
+            // Fallback olarak alert göster
+            Alert.alert(
+              'Oturum Hatası',
+              'Oturumunuz sona erdi. Lütfen uygulamayı yeniden başlatın ve tekrar giriş yapın.',
+              [{ text: 'Tamam', onPress: () => console.log('OK Pressed') }]
+            );
+          }
+        }, 1000);
         
-        throw new Error('Oturum süresi doldu');
+        // Hata fırlatmak yerine başarısız yanıt döndür
+        return {
+          isSuccess: false,
+          message: 'Oturum süresi doldu. Lütfen tekrar giriş yapın.',
+          data: null as unknown as T
+        };
       }
-
-      const data: ApiResponse<T> = await response.json();
-
-      if (!data.isSuccess) {
-        this.toast?.show(data.message || 'İşlem başarısız', {
-          type: 'danger',
-        });
-        throw new Error(data.message || 'API Error');
+      
+      // Yanıt başarılı değilse
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`API error: ${response.status} ${response.statusText}`, errorText);
+        throw new Error(errorText || `API error: ${response.status} ${response.statusText}`);
       }
-
-      return data;
-    } catch (error) {
-      if (error instanceof Error) {
-        this.toast?.show(error.message, {
-          type: 'danger',
-          placement: 'top',
-          duration: 4000,
-        });
+      
+      // Content-Type kontrolü
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.warn('Response is not JSON:', contentType);
+        const text = await response.text();
+        try {
+          // Yine de JSON olarak parse etmeyi dene
+          const parsedData = JSON.parse(text);
+          return {
+            isSuccess: true,
+            data: parsedData as T,
+            message: null
+          };
+        } catch (e) {
+          console.error('Failed to parse non-JSON response:', text);
+          throw new Error('Invalid response format from server');
+        }
+      }
+      
+      const result = await response.json();
+      
+      // API yanıt formatını kontrol et
+      if (result.hasOwnProperty('isSuccess')) {
+        // Zaten ApiResponse formatında
+        return result as ApiResponse<T>;
       } else {
-        this.toast?.show('Beklenmeyen bir hata oluştu', {
-          type: 'danger',
-          placement: 'top',
-          duration: 4000,
-        });
+        // ApiResponse formatına dönüştür
+        return {
+          isSuccess: true,
+          data: result as T,
+          message: null
+        };
       }
-      throw error;
-    }
-  }
-
-  async get<T>(endpoint: string): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'GET' });
-  }
-
-  async post<T>(endpoint: string, body: any): Promise<ApiResponse<T>> {
-    try {
-      // Ensure body can be properly stringified
-      const jsonBody = JSON.stringify(body);
-      
-      return this.request<T>(endpoint, {
-        method: 'POST',
-        body: jsonBody,
-      });
     } catch (error) {
-      console.error('Error stringifying request body:', error);
-      throw new Error('Invalid request data: Could not convert to JSON');
-    }
-  }
-
-  async put<T>(endpoint: string, body: any): Promise<ApiResponse<T>> {
-    try {
-      // Ensure body can be properly stringified
-      const jsonBody = JSON.stringify(body);
+      console.error('Request error:', error);
       
-      return this.request<T>(endpoint, {
-        method: 'PUT',
-        body: jsonBody,
-      });
-    } catch (error) {
-      console.error('Error stringifying request body:', error);
-      throw new Error('Invalid request data: Could not convert to JSON');
+      // Hata yanıtını ApiResponse formatına dönüştür
+      return {
+        isSuccess: false,
+        message: error instanceof Error ? error.message : 'Beklenmeyen bir hata oluştu',
+        data: null as unknown as T
+      };
+    } finally {
+      this.isLoading = false;
     }
   }
 
-  async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'DELETE' });
+  async get<T>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
+    return this.request<T>('GET', endpoint, undefined, options);
+  }
+
+  async post<T>(endpoint: string, body: any, options: RequestOptions = {}): Promise<ApiResponse<T>> {
+    return this.request<T>('POST', endpoint, body, options);
+  }
+
+  async put<T>(endpoint: string, body: any, options: RequestOptions = {}): Promise<ApiResponse<T>> {
+    return this.request<T>('PUT', endpoint, body, options);
+  }
+
+  async delete<T>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
+    return this.request<T>('DELETE', endpoint, undefined, options);
   }
 }
 
-export const apiClient = ApiClient.getInstance(); 
+// Singleton instance
+export const apiClient = new ApiClient(); 

@@ -43,7 +43,10 @@ const CustomDrawer = (props: any) => {
   const loadUserData = async () => {
     const auth = await authStore.getAuth();
     if (auth?.user) {
-      setUserData(auth.user);
+      setUserData({
+        ...auth.user,
+        email: auth.user.email || '',
+      });
     }
   };
 
@@ -51,10 +54,7 @@ const CustomDrawer = (props: any) => {
     try {
       await authService.logout();
       await authStore.clearAuth();
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Welcome' }],
-      });
+      navigation.navigate('Welcome');
     } catch (error) {
       console.error('Logout error:', error);
     }

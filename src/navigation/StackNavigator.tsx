@@ -2,6 +2,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import DrawerNavigator from './DrawerNavigator';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import CreateActivityScreen from '../screens/CreateActivityScreen';
+import LoginScreen from '../screens/LoginScreen';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -9,6 +10,11 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const StackNavigator = () => {
   return (
     <Stack.Navigator>
+      <Stack.Screen
+        name="Welcome"
+        component={LoginScreen}
+        options={{ headerShown: false }}
+      />
       <Stack.Screen
         name="Main"
         component={DrawerNavigator}

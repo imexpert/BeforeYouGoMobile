@@ -30,9 +30,43 @@ import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../navigation/types';
 import { Dropdown } from 'react-native-element-dropdown';
 import { activityService, ActivityPayload } from '../api/services/activity';
+import RNFS from 'react-native-fs';
 
 // Default image import
 const DEFAULT_IMAGE = require('../assets/images/emptyactivity.png');
+
+// Utility function to get default image as base64
+const getDefaultImageBase64 = async (): Promise<string> => {
+  try {
+    // Get the resolved source of the default image
+    const source = Image.resolveAssetSource(DEFAULT_IMAGE);
+    
+    if (source && source.uri) {
+      // Fetch the image and convert to base64
+      const response = await fetch(source.uri);
+      const blob = await response.blob();
+      
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            // Remove any data URL prefix and return only base64
+            const base64 = reader.result.replace(/^data:.*?;base64,/, '');
+            resolve(base64);
+          } else {
+            reject(new Error('Failed to convert image to base64'));
+          }
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+    throw new Error('Could not resolve default image source');
+  } catch (error) {
+    console.error('Error converting default image to base64:', error);
+    return '';
+  }
+};
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateActivity'>;
@@ -51,18 +85,17 @@ interface ActivityItem {
 const processImageData = (imageUri: string | null): string | null => {
   if (!imageUri) return null;
   
-  // If it's already a base64 data URL, return it as is
-  if (imageUri.startsWith('data:image')) {
-    // Check if the base64 string is too large (> 1MB)
-    const base64Data = imageUri.split(',')[1];
-    if (base64Data && base64Data.length > 1024 * 1024) {
+  // Remove any data URL prefix (handles both image/jpeg and application/octet-stream)
+  const base64Data = imageUri.replace(/^data:.*?;base64,/, '');
+  
+  if (base64Data) {
+    if (base64Data.length > 1024 * 1024) {
       console.warn('Base64 image data is too large (>1MB), this may cause issues');
     }
-    return imageUri;
+    return base64Data;
   }
   
-  // For file URIs, we should ideally convert them to base64
-  // But for now, we'll return null to avoid JSON parsing issues
+  // For file URIs, return null
   console.log('Image URI not in base64 format, skipping:', imageUri);
   return null;
 };
@@ -166,9 +199,9 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
   const handleImagePick = () => {
     ImagePicker.launchImageLibrary({
       mediaType: 'photo',
-      quality: 0.5, // Reduced quality for smaller payload
+      quality: 0.5,
       includeBase64: true,
-      maxWidth: 800, // Limit image size
+      maxWidth: 800,
       maxHeight: 800,
     }, (response) => {
       if (response.didCancel) {
@@ -178,13 +211,18 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
         Alert.alert('Hata', 'Resim seçilirken bir hata oluştu.');
       } else if (response.assets && response.assets[0]) {
         const asset = response.assets[0];
+        console.log('Image picked:', {
+          hasBase64: !!asset.base64,
+          hasUri: !!asset.uri,
+          base64Length: asset.base64?.length
+        });
+        
         if (asset.base64) {
-          // Use base64 data with proper data URL format
-          setImage(`data:image/jpeg;base64,${asset.base64}`);
+          // Directly use base64 data without adding prefix
+          setImage(asset.base64);
           setIsDefaultImage(false);
         } else if (asset.uri) {
-          // If no base64 available, use URI but log a warning
-          console.warn('Image picked without base64 data, using URI instead');
+          console.warn('Image picked without base64 data, using URI instead:', asset.uri);
           setImage(asset.uri);
           setIsDefaultImage(false);
         }
@@ -251,16 +289,36 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
       if (isEditing && activity?.id) {
         // Aktivite güncelleme işlemi
         const response = await activityService.updateActivityWithItems(activity.id, data);
-        return response.data;
+        
+        // API yanıtını kontrol et
+        if (!response.isSuccess) {
+          // Oturum hatası kontrolü
+          if (response.message?.includes('Oturum süresi doldu')) {
+            console.log('Oturum süresi doldu, login ekranına yönlendirilecek');
+            return { success: false, sessionExpired: true };
+          }
+          throw new Error(response.message || 'Aktivite güncellenirken bir hata oluştu');
+        }
+        
+        return { success: true, data: response.data };
       } else {
         // Yeni aktivite oluşturma işlemi
         const response = await activityService.createActivityWithItems(data);
-        return response.data;
+        
+        // API yanıtını kontrol et
+        if (!response.isSuccess) {
+          // Oturum hatası kontrolü
+          if (response.message?.includes('Oturum süresi doldu')) {
+            console.log('Oturum süresi doldu, login ekranına yönlendirilecek');
+            return { success: false, sessionExpired: true };
+          }
+          throw new Error(response.message || 'Aktivite oluşturulurken bir hata oluştu');
+        }
+        
+        return { success: true, data: response.data };
       }
     } catch (error) {
       console.error('API error:', error);
-      // 401 hatası artık merkezi olarak API client'ta ele alınıyor
-      // Bu nedenle burada özel bir işlem yapmaya gerek yok
       throw error;
     }
   };
@@ -271,9 +329,26 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
     // Tarih formatını API'nin beklediği formata dönüştürme
     const formattedDate = date.toISOString();
 
-    // Process image data - don't send default image to API
-    const processedImageData = image ? processImageData(image) : null;
+    // Process image data - convert default image to base64 if no image is selected
+    let processedImageData = image ? processImageData(image) : null;
+    
+    if (!processedImageData && isDefaultImage) {
+      try {
+        processedImageData = await getDefaultImageBase64();
+      } catch (error) {
+        console.error('Error getting default image base64:', error);
+      }
+    }
 
+    console.log('Processed image data:', {
+      hasImage: !!image,
+      isDefaultImage,
+      processedImageDataLength: processedImageData?.length,
+      imageFormat: processedImageData?.substring(0, 30) + '...' // Log the start of the image data
+    });
+
+    console.log(processedImageData); 
+    
     // API'ye gönderilecek veriyi hazırlama
     const activityData: ActivityPayload = {
       activity: {
@@ -344,6 +419,16 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
 
     try {
       const result = await sendDataToApi(activityData);
+      
+      // Oturum süresi doldu kontrolü
+      if (!result.success && result.sessionExpired) {
+        console.log('Session expired, not showing success message');
+        // Burada ek bir işlem yapmaya gerek yok, API client zaten navigasyonu ve toast mesajını hallediyor
+        setIsLoading(false);
+        return;
+      }
+      
+      // Başarılı durumda kullanıcıya bilgi ver ve geri dön
       Alert.alert(
         'Başarılı', 
         isEditing ? 'Aktivite başarıyla güncellendi' : 'Aktivite başarıyla oluşturuldu'
