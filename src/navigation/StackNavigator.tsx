@@ -4,6 +4,8 @@ import DrawerNavigator from './DrawerNavigator';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import CreateActivityScreen from '../screens/CreateActivityScreen';
 import LoginFormScreen from '../screens/LoginFormScreen';
+import LoginScreen from '../screens/LoginScreen';
+import RegisterScreen from '../screens/RegisterScreen';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -15,14 +17,24 @@ interface StackNavigatorProps {
 const StackNavigator = ({ initialAuth }: StackNavigatorProps) => {
   return (
     <Stack.Navigator
-      initialRouteName={initialAuth ? "Main" : "LoginForm"}
+      initialRouteName={initialAuth ? "Main" : "Welcome"}
       screenOptions={{
         headerShown: false,
       }}
     >
       <Stack.Screen
+        name="Welcome"
+        component={LoginScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
         name="LoginForm"
         component={LoginFormScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="Register"
+        component={RegisterScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen

@@ -33,7 +33,7 @@ export function navigateToLogin() {
             
             // React Navigation 7.x için güncellenmiş reset işlemi
             navigationRef.current.resetRoot({
-              routes: [{ name: 'LoginForm' }],
+              routes: [{ name: 'Welcome' }],
             });
             
             console.log('Successfully reset navigation to Login screen');
@@ -63,7 +63,7 @@ export function navigateToLogin() {
     
     // React Navigation 7.x için güncellenmiş reset işlemi
     navigationRef.current.resetRoot({
-      routes: [{ name: 'LoginForm' }],
+      routes: [{ name: 'Welcome' }],
     });
     
     console.log('Successfully reset navigation to Login screen');
