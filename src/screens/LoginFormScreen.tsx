@@ -13,6 +13,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useToast } from 'react-native-toast-notifications';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { CommonActions } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { authService } from '../api/services/auth';
 import { authStore } from '../store/auth';
@@ -97,10 +98,12 @@ const LoginFormScreen = ({ navigation }: Props) => {
           type: 'success',
         });
         
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Main' }],
-        });
+        navigation.dispatch(
+          CommonActions.reset({
+            index: 0,
+            routes: [{ name: 'Main' }],
+          })
+        );
       }
     } catch (error) {
       console.error('Login error:', error);

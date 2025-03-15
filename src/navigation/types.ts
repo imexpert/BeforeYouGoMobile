@@ -1,11 +1,24 @@
 // Define Activity interface if it's not imported from elsewhere
-interface Activity {
-  id?: string;
+export interface Activity {
+  id: string;
   name: string;
-  activityDate?: Date;
-  location?: string;
-  imageUrl?: string;
-  items?: any[];
+  userId: string;
+  activityTime: string;
+  location: string;
+  activityCode: string;
+  imageUrl: string | null;
+  userRole: string;
+  isOwner: boolean;
+  userCount: number;
+  itemCount: number;
+  activityItems: {
+    id: string;
+    name: string;
+    unit: string;
+    itemCount: number;
+  }[];
+  createdAt: string;
+  participantCount: number;
 }
 
 export type RootStackParamList = {

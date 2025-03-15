@@ -1,23 +1,26 @@
-import React from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   SafeAreaView,
-  ImageBackground,
   ScrollView,
   Image,
   FlatList,
   TouchableOpacity,
+  ActivityIndicator,
+  Modal,
+  Alert,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { format, differenceInDays } from 'date-fns';
+import { format, differenceInDays, parseISO } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { useState, useMemo } from 'react';
-import { useNavigation, CommonActions } from '@react-navigation/native';
+import { useNavigation, CommonActions, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../navigation/types';
+import type { RootStackParamList, Activity } from '../navigation/types';
+import { activityService } from '../api/services/activity';
+import { useToast } from 'react-native-toast-notifications';
 
 // Renk sabitleri
 const COLORS = {
@@ -25,107 +28,6 @@ const COLORS = {
   ORANGE: '#FF9500',
   RED: '#FF3B30',
 };
-
-// Örnek veri tipi
-interface Activity {
-  id: string;
-  name: string;
-  activityDate: Date;
-  createdAt: Date;
-  imageUrl: string;
-  participantCount: number;
-}
-
-// Davet tipi
-interface Invitation {
-  id: string;
-  activity: Activity;
-  invitedBy: {
-    name: string;
-    photoUrl: string;
-  };
-  status: 'pending' | 'accepted' | 'declined';
-}
-
-// Örnek veriler
-const activities: Activity[] = [
-  {
-    id: '1',
-    name: 'Yoga Dersi',
-    activityDate: new Date('2024-03-19T10:00:00'),
-    createdAt: new Date('2024-03-15T14:30:00'),
-    imageUrl: 'https://picsum.photos/200',
-    participantCount: 12,
-  },
-  {
-    id: '2',
-    name: 'Pilates Dersi',
-    activityDate: new Date(),
-    createdAt: new Date('2024-03-16T09:15:00'),
-    imageUrl: 'https://picsum.photos/200',
-    participantCount: 10,
-  },
-  {
-    id: '3',
-    name: 'Zumba Dersi',
-    activityDate: new Date(Date.now() + 86400000),
-    createdAt: new Date('2024-03-18T11:45:00'),
-    imageUrl: 'https://picsum.photos/200',
-    participantCount: 15,
-  },
-  {
-    id: '4',
-    name: 'Spinning Dersi',
-    activityDate: new Date(Date.now() + 172800000),
-    createdAt: new Date('2024-03-17T16:20:00'),
-    imageUrl: 'https://picsum.photos/200',
-    participantCount: 18,
-  },
-  {
-    id: '5',
-    name: 'Kickbox Dersi',
-    activityDate: new Date('2024-03-15T15:00:00'),
-    createdAt: new Date('2024-03-10T10:00:00'),
-    imageUrl: 'https://picsum.photos/200',
-    participantCount: 10,
-  },
-];
-
-// Örnek davetler
-const invitations: Invitation[] = [
-  {
-    id: '1',
-    activity: {
-      id: '6',
-      name: 'Tenis Dersi',
-      activityDate: new Date(Date.now() + 259200000), // 3 gün sonra
-      createdAt: new Date(),
-      imageUrl: 'https://picsum.photos/200',
-      participantCount: 4,
-    },
-    invitedBy: {
-      name: 'Ahmet Yılmaz',
-      photoUrl: 'https://picsum.photos/200',
-    },
-    status: 'pending',
-  },
-  {
-    id: '2',
-    activity: {
-      id: '7',
-      name: 'Yüzme Kursu',
-      activityDate: new Date(Date.now() + 432000000), // 5 gün sonra
-      createdAt: new Date(),
-      imageUrl: 'https://picsum.photos/200',
-      participantCount: 8,
-    },
-    invitedBy: {
-      name: 'Mehmet Demir',
-      photoUrl: 'https://picsum.photos/200',
-    },
-    status: 'pending',
-  },
-];
 
 // Aktivite durumunu hesaplayan fonksiyon
 const getActivityStatus = (activityDate: Date) => {
@@ -141,9 +43,27 @@ const getActivityStatus = (activityDate: Date) => {
 // NavigationProp tipini basitleştirelim
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-const ActivityCard = ({ activity }: { activity: Activity }) => {
+const CARD_COLORS = [
+  '#4A90E2',  // Mavi
+  '#F5A623',  // Turuncu
+  '#FF6B6B',  // Pembe
+  '#A352FF',  // Mor
+  '#50E3C2',  // Yeşil
+];
+
+const ActivityCard = ({ 
+  activity, 
+  index, 
+  onRefresh 
+}: { 
+  activity: Activity; 
+  index: number;
+  onRefresh: () => void;
+}) => {
   const navigation = useNavigation();
-  const status = getActivityStatus(activity.activityDate);
+  const toast = useToast();
+  const activityDate = activity.activityTime ? parseISO(activity.activityTime) : new Date();
+  const backgroundColor = CARD_COLORS[index % CARD_COLORS.length];
 
   const handleEdit = () => {
     navigation.dispatch(
@@ -155,103 +75,85 @@ const ActivityCard = ({ activity }: { activity: Activity }) => {
   };
 
   const handleDelete = () => {
-    // Silme işlemi
-    console.log('Delete activity:', activity.id);
+    Alert.alert(
+      'Aktiviteyi Sil',
+      'Bu aktiviteyi silmek istediğinizden emin misiniz?',
+      [
+        {
+          text: 'İptal',
+          style: 'cancel',
+        },
+        {
+          text: 'Sil',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const response = await activityService.deleteActivity(activity.id);
+              
+              if (response.isSuccess) {
+                toast.show('Aktivite başarıyla silindi', {
+                  type: 'success',
+                });
+                // Ana sayfayı yenile
+                onRefresh();
+              } else {
+                toast.show(response.message || 'Aktivite silinirken bir hata oluştu', {
+                  type: 'danger',
+                });
+              }
+            } catch (error) {
+              console.error('Error deleting activity:', error);
+              toast.show('Aktivite silinirken bir hata oluştu', {
+                type: 'danger',
+              });
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
   };
 
   return (
-    <View style={[styles.card, { borderColor: status.color }]}>
-      <View style={styles.statusBadge}>
-        <Text style={[styles.statusText, { color: status.color }]}>
-          {status.text}
-        </Text>
-      </View>
+    <TouchableOpacity 
+      style={[styles.card]}
+      onPress={handleEdit}
+      activeOpacity={0.8}
+    >
+      <View style={[styles.cardBackground]}>
+        <TouchableOpacity 
+          style={styles.deleteButton}
+          onPress={handleDelete}
+        >
+          <Icon name="delete" size={16} color="#1B3B6F" />
+        </TouchableOpacity>
 
-      <View style={styles.cardHeader}>
-        <Image
-          source={{ uri: activity.imageUrl }}
-          style={styles.activityImage}
-        />
-        <View style={styles.headerContent}>
-          <Text style={styles.activityName} numberOfLines={1}>
-            {activity.name}
-          </Text>
-          <Text style={styles.dateText} numberOfLines={1}>
-            {format(activity.activityDate, 'dd MMM yyyy HH:mm', { locale: tr })}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.cardContent}>
-        <View style={styles.infoRow}>
-          <Text style={styles.createdAtText} numberOfLines={1}>
-            {format(activity.createdAt, 'dd MMM yyyy')}
-          </Text>
-          <View style={styles.participantContainer}>
-            <Text style={styles.participantCount}>{activity.participantCount}</Text>
-            <Text style={styles.participantLabel}>Katılımcı</Text>
-          </View>
-          <View style={styles.actionButtons}>
-            <TouchableOpacity 
-              style={styles.iconButton} 
-              onPress={handleEdit}
-            >
-              <Icon name="edit" size={20} color="#5D5FEF" />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.iconButton} 
-              onPress={handleDelete}
-            >
-              <Icon name="delete" size={20} color="#FF3B30" />
-            </TouchableOpacity>
+        <View style={styles.cardContent}>
+          <View style={styles.leftContent}>
+            <Image
+              source={activity.imageUrl ? { uri: activity.imageUrl } : require('../assets/images/emptyactivity.png')}
+              style={styles.activityImage}
+            />
+            <View style={styles.textContent}>
+              <Text style={styles.activityName} numberOfLines={1}>
+                {activity.name}
+              </Text>
+              <Text style={styles.activityTitle} numberOfLines={1}>
+                {format(activityDate, 'dd MMM yyyy HH:mm', { locale: tr })}
+              </Text>
+              <View style={styles.statsContainer}>
+                <Text style={styles.statsText}>{activity.userCount}</Text>
+                <Text style={styles.statsLabel}>Kullanıcı</Text>
+                <Text style={styles.statsDivider}>•</Text>
+                <Text style={styles.statsText}>{activity.itemCount}</Text>
+                <Text style={styles.statsLabel}>Parça</Text>
+                <Text style={styles.statsText}>{activity.participantCount}</Text>
+              </View>
+            </View>
           </View>
         </View>
       </View>
-    </View>
-  );
-};
-
-const InvitationCard = ({ invitation }: { invitation: Invitation }) => {
-  const handleAccept = () => {
-    console.log('Accept invitation:', invitation.id);
-  };
-
-  const handleDecline = () => {
-    console.log('Decline invitation:', invitation.id);
-  };
-
-  return (
-    <View style={styles.invitationCard}>
-      <Image
-        source={{ uri: invitation.activity.imageUrl }}
-        style={styles.invitationImage}
-      />
-      <View style={styles.invitationContent}>
-        <Text style={styles.invitationTitle} numberOfLines={1}>
-          {invitation.activity.name}
-        </Text>
-        <View style={styles.invitedByContainer}>
-          <Image
-            source={{ uri: invitation.invitedBy.photoUrl }}
-            style={styles.inviterPhoto}
-          />
-          <Text style={styles.invitedByText}>
-            <Text style={styles.inviterName}>{invitation.invitedBy.name}</Text> davet etti
-          </Text>
-        </View>
-        <Text style={styles.invitationDate}>
-          {format(invitation.activity.activityDate, 'dd MMM yyyy HH:mm', { locale: tr })}
-        </Text>
-      </View>
-      <View style={styles.invitationActions}>
-        <TouchableOpacity style={styles.acceptButton} onPress={handleAccept}>
-          <Icon name="check" size={20} color="#34C759" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.declineButton} onPress={handleDecline}>
-          <Icon name="close" size={20} color="#FF3B30" />
-        </TouchableOpacity>
-      </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 
@@ -259,18 +161,65 @@ const HomeScreen = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const navigation = useNavigation();
+  const toast = useToast();
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Add focus effect to refresh activities
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchActivities();
+    }, [])
+  );
+
+  useEffect(() => {
+    fetchActivities();
+  }, []);
+
+  const fetchActivities = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const response = await activityService.getUserActivities();
+        
+      if (response.isSuccess) {
+        console.log(response.data);
+        // Add default values for userCount and itemCount
+        const activitiesWithCounts = response.data?.map(activity => ({
+          ...activity,
+          userCount: activity.userCount || 0,
+          itemCount: activity.itemCount || 0
+        })) || [];
+        setActivities(activitiesWithCounts);
+      } else {
+        setError(response.message || 'Aktiviteler yüklenirken bir hata oluştu');
+        toast.show(response.message || 'Aktiviteler yüklenirken bir hata oluştu', {
+          type: 'danger',
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching activities:', error);
+      setError('Aktiviteler yüklenirken bir hata oluştu');
+      toast.show('Aktiviteler yüklenirken bir hata oluştu', {
+        type: 'danger',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const { upcomingActivities, pastActivities } = useMemo(() => {
     const now = new Date();
     return {
       upcomingActivities: activities
-        .filter(activity => activity.activityDate >= now)
-        .sort((a, b) => a.activityDate.getTime() - b.activityDate.getTime()),
+        .filter(activity => new Date(activity.activityTime) >= now)
+        .sort((a, b) => new Date(a.activityTime).getTime() - new Date(b.activityTime).getTime()),
       pastActivities: activities
-        .filter(activity => activity.activityDate < now)
-        .sort((a, b) => b.activityDate.getTime() - a.activityDate.getTime()),
+        .filter(activity => new Date(activity.activityTime) < now)
+        .sort((a, b) => new Date(b.activityTime).getTime() - new Date(a.activityTime).getTime()),
     };
-  }, []);
+  }, [activities]);
 
   const handleCreateActivity = () => {
     navigation.dispatch(
@@ -281,23 +230,16 @@ const HomeScreen = () => {
     );
   };
 
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#5D5FEF" />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      {invitations.length > 0 && (
-        <View style={styles.invitationsSection}>
-          <Text style={styles.invitationsTitle}>Davetler</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.invitationsList}
-          >
-            {invitations.map(invitation => (
-              <InvitationCard key={invitation.id} invitation={invitation} />
-            ))}
-          </ScrollView>
-        </View>
-      )}
-
       <View style={styles.tabContainer}>
         <TouchableOpacity
           style={[
@@ -357,20 +299,51 @@ const HomeScreen = () => {
       </View>
 
       <FlatList
-        data={activeTab === 'upcoming' ? upcomingActivities : pastActivities}
-        renderItem={({ item }) => <ActivityCard activity={item} />}
+        data={
+          activeTab === 'upcoming' 
+            ? upcomingActivities 
+            : activeTab === 'past'
+            ? pastActivities
+            : []
+        }
+        renderItem={({ item, index }) => (
+          <ActivityCard 
+            activity={item} 
+            index={index} 
+            onRefresh={fetchActivities}
+          />
+        )}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContainer}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
-              {activeTab === 'upcoming'
-                ? 'Gelecek aktivite bulunmuyor'
-                : 'Geçmiş aktivite bulunmuyor'}
-            </Text>
+            <View style={styles.emptyContentContainer}>
+              <Text style={styles.emptyText}>
+                {error || (activeTab === 'upcoming'
+                  ? 'Gelecek aktivite bulunmuyor'
+                  : 'Geçmiş aktivite bulunmuyor')}
+              </Text>
+              <TouchableOpacity
+                style={styles.retryButton}
+                onPress={fetchActivities}
+              >
+                <Icon name="refresh" size={20} color="#5D5FEF" />
+              </TouchableOpacity>
+            </View>
           </View>
         }
+        ListFooterComponent={
+          <TouchableOpacity
+            style={styles.refreshButton}
+            onPress={fetchActivities}
+          >
+            <Icon name="refresh" size={20} color="#5D5FEF" />
+            <Text style={styles.refreshButtonText}>Yenile</Text>
+          </TouchableOpacity>
+        }
+        onRefresh={fetchActivities}
+        refreshing={isLoading}
       />
 
       <TouchableOpacity
@@ -438,108 +411,97 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: 'center',
   },
+  emptyContentContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
   emptyText: {
     fontSize: 14,
     color: '#666',
+  },
+  retryButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(93, 95, 239, 0.1)',
   },
   listContainer: {
     padding: 12,
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
+    borderRadius: 16,
     overflow: 'hidden',
-    elevation: 2,
-    shadowColor: '#000',
+    elevation: 4,
+    shadowColor: '#4A90E2',
     shadowOffset: {
       width: 0,
-      height: 1,
+      height: 2,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    borderWidth: 1,
-    marginBottom: 8,
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    marginBottom: 12,
+    backgroundColor: 'rgba(74, 144, 226, 0.1)',
   },
-  cardHeader: {
-    flexDirection: 'row',
-    padding: 8,
-    alignItems: 'center',
-  },
-  headerContent: {
-    flex: 1,
-    marginLeft: 8,
-  },
-  activityImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 6,
-  },
-  activityName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 4,
+  cardBackground: {
+    padding: 16,
+    backgroundColor: 'rgba(74, 144, 226, 0.85)',
   },
   cardContent: {
-    padding: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
-  infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  createdAtText: {
-    fontSize: 12,
-    color: '#666',
+  leftContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
   },
-  participantContainer: {
-    alignItems: 'center',
-    marginHorizontal: 12,
+  activityImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
   },
-  participantCount: {
+  textContent: {
+    flex: 1,
+  },
+  activityName: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#5D5FEF',
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 4,
   },
-  participantLabel: {
-    fontSize: 10,
-    color: '#666',
+  activityTitle: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+    marginBottom: 8,
   },
-  actionButtons: {
+  statsContainer: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
   },
-  iconButton: {
-    padding: 4,
-  },
-  dateText: {
+  statsText: {
     fontSize: 12,
-    color: '#666',
+    color: 'rgba(255,255,255,0.9)',
+    fontWeight: '500',
   },
-  statusBadge: {
+  statsLabel: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.7)',
+    marginLeft: 4,
+  },
+  statsDivider: {
+    marginHorizontal: 8,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  deleteButton: {
     position: 'absolute',
     top: 8,
     right: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    padding: 6,
+    borderRadius: 6,
     zIndex: 1,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 2,
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '600',
   },
   fabButton: {
     position: 'absolute',
@@ -560,78 +522,27 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
   },
-  invitationsSection: {
-    backgroundColor: '#fff',
-    paddingVertical: 12,
-  },
-  invitationsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    marginLeft: 12,
-    marginBottom: 8,
-  },
-  invitationsList: {
-    paddingHorizontal: 8,
-    gap: 8,
-  },
-  invitationCard: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#eee',
-    padding: 8,
-    width: 280,
-    alignItems: 'center',
-  },
-  invitationImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 6,
-  },
-  invitationContent: {
+  loadingContainer: {
     flex: 1,
-    marginLeft: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
   },
-  invitationTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 4,
-  },
-  invitedByContainer: {
+  refreshButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
-  },
-  inviterPhoto: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    marginRight: 4,
-  },
-  invitedByText: {
-    fontSize: 12,
-    color: '#666',
-  },
-  inviterName: {
-    fontWeight: '500',
-    color: '#000',
-  },
-  invitationDate: {
-    fontSize: 12,
-    color: '#666',
-  },
-  invitationActions: {
-    flexDirection: 'row',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(93, 95, 239, 0.1)',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
+    marginBottom: 80,
     gap: 8,
   },
-  acceptButton: {
-    padding: 4,
-  },
-  declineButton: {
-    padding: 4,
+  refreshButtonText: {
+    color: '#5D5FEF',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
 

@@ -126,9 +126,10 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
   const isEditing = !!activity;
 
   const [name, setName] = useState(activity?.name || '');
-  const [date, setDate] = useState(activity?.activityDate || new Date());
+  const [date, setDate] = useState(activity?.activityTime ? new Date(activity.activityTime) : new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [location, setLocation] = useState(activity?.location || '');
+  const [activityCode, setActivityCode] = useState(activity?.activityCode || '');
   const [image, setImage] = useState<string | null>(activity?.imageUrl || null);
   const [isDefaultImage, setIsDefaultImage] = useState(true);
   const [items, setItems] = useState<ActivityItem[]>([]);
@@ -146,11 +147,54 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
     { label: 'Litre', value: 'lt' },
   ];
 
+  // Fetch activity details when editing
+  useEffect(() => {
+    const fetchActivityDetails = async () => {
+      if (isEditing && activity?.id) {
+        try {
+          setIsLoading(true);
+          const response = await activityService.getActivityById(Number(activity.id));
+          if (response.isSuccess && response.data) {
+            const activityDetails = response.data;
+            console.log(activityDetails.activityItems);
+            // Update state with fetched data
+            setName(activityDetails.name);
+            setDate(new Date(activityDetails.activityTime));
+            setLocation(activityDetails.location);
+            setImage(activityDetails.imageUrl);
+            setIsDefaultImage(!activityDetails.imageUrl);
+
+            // Convert API items to ActivityItem format
+            if (activityDetails.activityItems) {
+              const convertedItems = activityDetails.activityItems.map(item => ({
+                id: item.id,
+                name: item.name,
+                unit: convertApiUnitToLocal(item.unit),
+                quantity: item.itemCount,
+              }));
+              setItems(convertedItems);
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching activity details:', error);
+          Alert.alert(
+            'Hata',
+            'Aktivite detayları yüklenirken bir hata oluştu.'
+          );
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchActivityDetails();
+  }, [isEditing, activity]);
+
   // Load activity items when editing
   useEffect(() => {
-    if (isEditing && activity?.items) {
+    if (isEditing && activity?.activityItems) {
       // Convert API items to ActivityItem format
-      const convertedItems = activity.items.map((item: any) => ({
+      const convertedItems = activity.activityItems.map((item: any) => ({
         id: item.id || Date.now().toString(),
         name: item.name,
         unit: convertApiUnitToLocal(item.unit),
@@ -524,140 +568,153 @@ const CreateActivityScreen = ({ navigation, route }: Props) => {
         </View>
       )}
       
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <TouchableOpacity 
-            onPress={() => navigation.goBack()}
-            style={styles.backButton}
-          >
-            <Icon name="close" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.title}>
-            {isEditing ? 'Aktiviteyi Düzenle' : 'Yeni Aktivite'}
-          </Text>
-          <TouchableOpacity 
-            style={[styles.saveButton, !name && styles.saveButtonDisabled]}
-            onPress={handleSubmit}
-            disabled={!name || isLoading}
-          >
-            <Text style={styles.saveButtonText}>
-              {isEditing ? 'Güncelle' : 'Kaydet'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.imageContainer}>
-          {image ? (
-            <View style={styles.defaultImageContainer}>
-              <Image 
-                source={{ uri: image }} 
-                style={styles.selectedImage} 
-                resizeMode="stretch"
-              />
-              <TouchableOpacity 
-                style={styles.changeImageButton}
-                onPress={handleImagePick}
-              >
-                <Text style={styles.changeImageText}>Resmi Değiştir</Text>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoidingView}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <ScrollView style={styles.scrollView}>
+            <View style={styles.header}>
+              <TouchableOpacity onPress={() => navigation.goBack()}>
+                <Icon name="arrow-back" size={24} color="#000" />
               </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.defaultImageContainer}>
-              <Image 
-                source={DEFAULT_IMAGE} 
-                style={styles.defaultImage} 
-                resizeMode="stretch"
-              />
-              <TouchableOpacity 
-                style={styles.changeImageButton}
-                onPress={handleImagePick}
-              >
-                <Text style={styles.changeImageText}>Resmi Değiştir</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.form}>
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Aktivite Adı</Text>
-            <TextInput
-              style={styles.input}
-              value={name}
-              onChangeText={setName}
-              placeholder="Aktivite adını girin"
-            />
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Aktivite Zamanı</Text>
-            <TouchableOpacity
-              style={styles.datePickerButton}
-              onPress={showDatepicker}
-            >
-              <Text style={styles.dateText}>
-                {format(date, 'dd MMMM yyyy HH:mm', { locale: tr })}
+              <Text style={styles.headerTitle}>
+                {isEditing ? 'Aktiviteyi Düzenle' : 'Yeni Aktivite'}
               </Text>
-              <Icon name="event" size={24} color="#5D5FEF" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Aktivite Yeri</Text>
-            <TextInput
-              style={styles.input}
-              value={location}
-              onChangeText={setLocation}
-              placeholder="Aktivite yerini girin"
-            />
-          </View>
-
-          <View style={styles.itemsSection}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Aktivite Öğeleri</Text>
               <TouchableOpacity
-                style={styles.addItemButton}
-                onPress={() => setShowAddItemModal(true)}
+                style={[styles.headerButton, !name && styles.headerButtonDisabled]}
+                onPress={handleSubmit}
+                disabled={!name}
               >
-                <Icon name="add" size={24} color="#5D5FEF" />
+                <Text style={styles.headerButtonText}>
+                  {isEditing ? 'Güncelle' : 'Kaydet'}
+                </Text>
               </TouchableOpacity>
             </View>
 
-            {items.length > 0 ? (
-              <View style={styles.itemsTable}>
-                <TableHeader />
-                <FlatList
-                  data={items}
-                  renderItem={renderItem}
-                  keyExtractor={item => item.id}
-                  scrollEnabled={false}
-                />
-              </View>
-            ) : (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>Henüz öğe eklenmemiş</Text>
-                <TouchableOpacity
-                  style={styles.addFirstItemButton}
-                  onPress={() => setShowAddItemModal(true)}
-                >
-                  <Text style={styles.addFirstItemText}>İlk Öğeyi Ekle</Text>
-                </TouchableOpacity>
+            {activity?.activityCode && (
+              <View style={styles.infoContainer}>
+                <Text style={styles.infoLabel}>Aktivite Kodu:</Text>
+                <Text style={styles.infoValue}>{activity.activityCode}</Text>
               </View>
             )}
-          </View>
-        </View>
 
-        {showDatePicker && (
-          <DateTimePicker
-            testID="dateTimePicker"
-            value={date}
-            mode={datePickerMode}
-            is24Hour={true}
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={handleDateChange}
-          />
-        )}
-      </ScrollView>
+            <View style={styles.formContainer}>
+              <View style={styles.imageContainer}>
+                {image ? (
+                  <View style={styles.defaultImageContainer}>
+                    <Image 
+                      source={{ uri: image }} 
+                      style={styles.selectedImage} 
+                      resizeMode="stretch"
+                    />
+                    <TouchableOpacity 
+                      style={styles.changeImageButton}
+                      onPress={handleImagePick}
+                    >
+                      <Text style={styles.changeImageText}>Resmi Değiştir</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.defaultImageContainer}>
+                    <Image 
+                      source={DEFAULT_IMAGE} 
+                      style={styles.defaultImage} 
+                      resizeMode="stretch"
+                    />
+                    <TouchableOpacity 
+                      style={styles.changeImageButton}
+                      onPress={handleImagePick}
+                    >
+                      <Text style={styles.changeImageText}>Resmi Değiştir</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.form}>
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Aktivite Adı</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={name}
+                    onChangeText={setName}
+                    placeholder="Aktivite adını girin"
+                  />
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Aktivite Zamanı</Text>
+                  <TouchableOpacity
+                    style={styles.datePickerButton}
+                    onPress={showDatepicker}
+                  >
+                    <Text style={styles.dateText}>
+                      {format(date, 'dd MMMM yyyy HH:mm', { locale: tr })}
+                    </Text>
+                    <Icon name="event" size={24} color="#5D5FEF" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Aktivite Yeri</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={location}
+                    onChangeText={setLocation}
+                    placeholder="Aktivite yerini girin"
+                  />
+                </View>
+
+                <View style={styles.itemsSection}>
+                  <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>Aktivite Öğeleri</Text>
+                    <TouchableOpacity
+                      style={styles.addItemButton}
+                      onPress={() => setShowAddItemModal(true)}
+                    >
+                      <Icon name="add" size={24} color="#5D5FEF" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {items.length > 0 ? (
+                    <View style={styles.itemsTable}>
+                      <TableHeader />
+                      <FlatList
+                        data={items}
+                        renderItem={renderItem}
+                        keyExtractor={item => item.id}
+                        scrollEnabled={false}
+                      />
+                    </View>
+                  ) : (
+                    <View style={styles.emptyContainer}>
+                      <Text style={styles.emptyText}>Henüz öğe eklenmemiş</Text>
+                      <TouchableOpacity
+                        style={styles.addFirstItemButton}
+                        onPress={() => setShowAddItemModal(true)}
+                      >
+                        <Text style={styles.addFirstItemText}>İlk Öğeyi Ekle</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+
+            {showDatePicker && (
+              <DateTimePicker
+                testID="dateTimePicker"
+                value={date}
+                mode={datePickerMode}
+                is24Hour={true}
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={handleDateChange}
+              />
+            )}
+          </ScrollView>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
 
       {/* Simple Modal Implementation */}
       <Modal
@@ -775,7 +832,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  scrollContent: {
+  scrollView: {
     flexGrow: 1,
   },
   header: {
@@ -786,25 +843,30 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
-  backButton: {
-    padding: 8,
-  },
-  title: {
+  headerTitle: {
     fontSize: 18,
     fontWeight: '600',
   },
-  saveButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#5D5FEF',
+  infoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#F5F5F5',
     borderRadius: 8,
+    marginBottom: 16,
   },
-  saveButtonDisabled: {
-    opacity: 0.5,
-  },
-  saveButtonText: {
-    color: '#fff',
+  infoLabel: {
+    fontSize: 14,
     fontWeight: '600',
+    color: '#666',
+    marginRight: 8,
+  },
+  infoValue: {
+    fontSize: 14,
+    color: '#000',
+  },
+  formContainer: {
+    padding: 16,
   },
   imageContainer: {
     paddingHorizontal: 16,
@@ -1091,6 +1153,20 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 14,
+  },
+  headerButton: {
+    backgroundColor: '#5D5FEF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  headerButtonDisabled: {
+    opacity: 0.5,
+  },
+  headerButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

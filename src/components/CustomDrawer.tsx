@@ -12,10 +12,11 @@ import {
 } from '@react-navigation/drawer';
 import { useTranslation } from 'react-i18next';
 import { authService } from '../api/services/auth';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { authStore } from '../store/auth';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { navigateToLogin } from '../navigation/RootNavigation';
 
 type RootStackParamList = {
   Welcome: undefined;
@@ -54,7 +55,7 @@ const CustomDrawer = (props: any) => {
     try {
       await authService.logout();
       await authStore.clearAuth();
-      navigation.navigate('Welcome');
+      navigateToLogin();
     } catch (error) {
       console.error('Logout error:', error);
     }

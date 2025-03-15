@@ -2,6 +2,7 @@ export interface ApiResponse<T> {
   isSuccess: boolean;
   data: T;
   message: string | null;
+  statusCode?: number;
 }
 
 export interface GoogleLoginRequest {

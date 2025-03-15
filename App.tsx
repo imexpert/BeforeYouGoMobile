@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { ToastProvider } from 'react-native-toast-notifications';
 import { navigationRef } from './src/navigation/RootNavigation';
@@ -24,16 +24,35 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     checkAuth();
+
+    // Periyodik token kontrolü (her 5 dakikada bir)
+    const tokenCheckInterval = setInterval(() => {
+      checkAuth();
+    }, 5 * 60 * 1000); // 5 dakika
+
+    return () => {
+      clearInterval(tokenCheckInterval);
+    };
   }, []);
 
   const checkAuth = async () => {
-    const token = await authStore.getToken();
-    setIsAuthenticated(!!token);
-    setIsLoading(false);
+    try {
+      const token = await authStore.getToken();
+      setIsAuthenticated(!!token);
+    } catch (error) {
+      console.error('Auth check error:', error);
+      setIsAuthenticated(false);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (isLoading) {
-    return <View style={{ flex: 1 }} />;
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#5D5FEF" />
+      </View>
+    );
   }
 
   return (
@@ -43,7 +62,7 @@ function App(): React.JSX.Element {
       animationType="slide-in"
     >
       <NavigationContainer ref={navigationRef}>
-        <StackNavigator />
+        <StackNavigator initialAuth={isAuthenticated} />
       </NavigationContainer>
     </ToastProvider>
   );

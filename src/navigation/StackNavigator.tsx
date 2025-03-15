@@ -1,18 +1,28 @@
+import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import DrawerNavigator from './DrawerNavigator';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import CreateActivityScreen from '../screens/CreateActivityScreen';
-import LoginScreen from '../screens/LoginScreen';
+import LoginFormScreen from '../screens/LoginFormScreen';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-const StackNavigator = () => {
+interface StackNavigatorProps {
+  initialAuth: boolean;
+}
+
+const StackNavigator = ({ initialAuth }: StackNavigatorProps) => {
   return (
-    <Stack.Navigator>
+    <Stack.Navigator
+      initialRouteName={initialAuth ? "Main" : "LoginForm"}
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
       <Stack.Screen
-        name="Welcome"
-        component={LoginScreen}
+        name="LoginForm"
+        component={LoginFormScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen
@@ -33,6 +43,7 @@ const StackNavigator = () => {
           headerTitleStyle: { color: '#000' },
           headerShadowVisible: false,
           headerTintColor: '#000',
+          headerShown: true,
         }}
       />
     </Stack.Navigator>

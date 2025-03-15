@@ -9,7 +9,7 @@ export const navigationRef = createRef<NavigationContainerRef<RootStackParamList
 // Login sayfasına yönlendirme fonksiyonu
 export function navigateToLogin() {
   try {
-    console.log('Attempting to navigate to Welcome screen');
+    console.log('Attempting to navigate to Login screen');
     
     // Navigation hazır mı kontrol et
     if (!navigationRef.current) {
@@ -23,20 +23,20 @@ export function navigateToLogin() {
     }
     
     if (!navigationRef.current.isReady()) {
-      console.warn('Navigation is not ready yet, cannot navigate to Welcome');
+      console.warn('Navigation is not ready yet, cannot navigate to Login');
       
       // Navigation hazır değilse, bir süre sonra tekrar dene
       setTimeout(() => {
         try {
           if (navigationRef.current && navigationRef.current.isReady()) {
-            console.log('Navigation is now ready, navigating to Welcome screen');
+            console.log('Navigation is now ready, navigating to Login screen');
             
             // React Navigation 7.x için güncellenmiş reset işlemi
             navigationRef.current.resetRoot({
-              routes: [{ name: 'Welcome' }],
+              routes: [{ name: 'LoginForm' }],
             });
             
-            console.log('Successfully reset navigation to Welcome screen');
+            console.log('Successfully reset navigation to Login screen');
           } else {
             console.error('Navigation still not ready after timeout');
             // Kullanıcıya bilgi ver
@@ -59,17 +59,17 @@ export function navigateToLogin() {
       return false;
     }
     
-    console.log('Navigation is ready, navigating to Welcome screen');
+    console.log('Navigation is ready, navigating to Login screen');
     
     // React Navigation 7.x için güncellenmiş reset işlemi
     navigationRef.current.resetRoot({
-      routes: [{ name: 'Welcome' }],
+      routes: [{ name: 'LoginForm' }],
     });
     
-    console.log('Successfully reset navigation to Welcome screen');
+    console.log('Successfully reset navigation to Login screen');
     return true;
   } catch (error) {
-    console.error('Error navigating to Welcome:', error);
+    console.error('Error navigating to Login:', error);
     
     // Hata durumunda kullanıcıya bilgi ver
     Alert.alert(

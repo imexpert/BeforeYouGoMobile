@@ -12,6 +12,7 @@ export interface ApiResponse<T> {
   isSuccess: boolean;
   message: string | null;
   data: T;
+  statusCode: number;
 }
 
 // İstek seçenekleri için interface
@@ -120,7 +121,8 @@ export class ApiClient {
         return {
           isSuccess: false,
           message: 'Oturum süresi doldu. Lütfen tekrar giriş yapın.',
-          data: null as unknown as T
+          data: null as unknown as T,
+          statusCode: response.status
         };
       }
       
@@ -128,7 +130,12 @@ export class ApiClient {
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`API error: ${response.status} ${response.statusText}`, errorText);
-        throw new Error(errorText || `API error: ${response.status} ${response.statusText}`);
+        return {
+          isSuccess: false,
+          message: errorText || `API error: ${response.status} ${response.statusText}`,
+          data: null as unknown as T,
+          statusCode: response.status
+        };
       }
       
       // Content-Type kontrolü
@@ -142,11 +149,17 @@ export class ApiClient {
           return {
             isSuccess: true,
             data: parsedData as T,
-            message: null
+            message: null,
+            statusCode: response.status
           };
         } catch (e) {
           console.error('Failed to parse non-JSON response:', text);
-          throw new Error('Invalid response format from server');
+          return {
+            isSuccess: false,
+            message: 'Invalid response format from server',
+            data: null as unknown as T,
+            statusCode: response.status
+          };
         }
       }
       
@@ -154,14 +167,18 @@ export class ApiClient {
       
       // API yanıt formatını kontrol et
       if (result.hasOwnProperty('isSuccess')) {
-        // Zaten ApiResponse formatında
-        return result as ApiResponse<T>;
+        // Zaten ApiResponse formatında, statusCode ekle
+        return {
+          ...result,
+          statusCode: response.status
+        } as ApiResponse<T>;
       } else {
         // ApiResponse formatına dönüştür
         return {
           isSuccess: true,
           data: result as T,
-          message: null
+          message: null,
+          statusCode: response.status
         };
       }
     } catch (error) {
@@ -171,7 +188,8 @@ export class ApiClient {
       return {
         isSuccess: false,
         message: error instanceof Error ? error.message : 'Beklenmeyen bir hata oluştu',
-        data: null as unknown as T
+        data: null as unknown as T,
+        statusCode: 500
       };
     } finally {
       this.isLoading = false;

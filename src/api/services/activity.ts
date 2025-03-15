@@ -37,6 +37,28 @@ const processActivityData = (data: ActivityPayload): ActivityPayload => {
   return processedData;
 };
 
+export interface Activity {
+  id: string;
+  name: string;
+  userId: string;
+  activityTime: string;
+  location: string;
+  activityCode: string;
+  imageUrl: string | null;
+  userRole: string;
+  isOwner: boolean;
+  userCount: number;
+  itemCount: number;
+  activityItems: {
+    id: string;
+    name: string;
+    unit: string;
+    itemCount: number;
+  }[];
+  createdAt: string;
+  participantCount: number;
+}
+
 // Activity service for handling activity-related API calls
 export const activityService = {
   // Create a new activity with items
@@ -64,10 +86,10 @@ export const activityService = {
   },
   
   // Update an existing activity with items
-  updateActivityWithItems: async (activityId: string, data: ActivityPayload): Promise<ApiResponse<any>> => {
+  updateActivityWithItems: async (id: string, data: ActivityPayload): Promise<ApiResponse<any>> => {
     try {
       // Validate data before sending
-      if (!data.activity || !data.activityItems) {
+      if (!data.activity) {
         throw new Error('Invalid activity data structure');
       }
       
@@ -75,9 +97,9 @@ export const activityService = {
       const processedData = processActivityData(data);
       
       // Ensure the data can be properly stringified
-      JSON.stringify(processedData);
-      
-      return apiClient.put<any>(`/Activities/${activityId}`, processedData);
+      JSON.stringify(processedData.activity);
+      console.log(processedData.activityItems);
+      return apiClient.put<any>(`/Activities/Update/${id}`, processedData.activity);
     } catch (error) {
       console.error('Error in updateActivityWithItems:', error);
       if (error instanceof SyntaxError) {
@@ -93,12 +115,37 @@ export const activityService = {
   },
   
   // Get a specific activity by ID
-  getActivityById: async (activityId: string): Promise<ApiResponse<any>> => {
-    return apiClient.get<any>(`/Activities/${activityId}`);
+  getActivityById: async (id: number): Promise<ApiResponse<Activity>> => {
+    return apiClient.get<Activity>(`/Activities/GetById/${id}`);
   },
   
   // Delete an activity
   deleteActivity: async (activityId: string): Promise<ApiResponse<any>> => {
-    return apiClient.delete<any>(`/Activities/${activityId}`);
-  }
+    return apiClient.delete<any>(`/Activities/Delete/${activityId}`);
+  },
+
+  // Get user activities
+  getUserActivities: async (): Promise<ApiResponse<Activity[]>> => {
+    try {
+      const response = await apiClient.get<Activity[]>('/Activities/GetUserActivities');
+      
+      // Ensure all activities have default values for new fields
+      if (response.isSuccess && response.data) {
+        response.data = response.data.map(activity => ({
+          ...activity,
+          userRole: activity.userRole || '',
+          isOwner: activity.isOwner || false,
+          userCount: activity.userCount || 0,
+          itemCount: activity.itemCount || 0,
+          activityItems: activity.activityItems || [],
+          activityCode: activity.activityCode || ''
+        }));
+      }
+      
+      return response;
+    } catch (error) {
+      console.error('Error fetching user activities:', error);
+      throw error;
+    }
+  },
 }; 
